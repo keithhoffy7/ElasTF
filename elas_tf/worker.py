@@ -1,6 +1,7 @@
 import json
 import os
 import socket
+import time
 from pathlib import Path
 
 from . import training
@@ -15,34 +16,35 @@ def _config_dir() -> Path:
     return Path(path)
 
 
-def _load_tf_config_for_worker(worker_id: str) -> str | None:
+def _load_tf_config_for_worker(worker_id: str) -> tuple[str | None, int]:
     cfg_path = _config_dir() / TF_CONFIG_FILENAME
     if not cfg_path.exists():
         print(f"[worker {worker_id}] No TF_CONFIG file at {cfg_path}, running single-worker.")
-        return None
+        return None, 0
 
     data = json.loads(cfg_path.read_text(encoding="utf-8"))
     configs = data.get("configs", {})
     cfg = configs.get(worker_id)
     if not cfg:
         print(f"[worker {worker_id}] No TF_CONFIG entry for this worker in {cfg_path}, running single-worker.")
-        return None
+        return None, 0
 
-    generation = data.get("generation", 0)
+    generation = int(data.get("generation", 0))
     print(f"[worker {worker_id}] Loaded TF_CONFIG (generation={generation}) from {cfg_path}")
-    return json.dumps(cfg)
+    return json.dumps(cfg), generation
 
 
 def run_worker() -> None:
     worker_id = os.getenv("WORKER_ID", "0")
     controller_host = os.getenv("CONTROLLER_HOST", "controller")
     heartbeat_port = int(os.getenv("HEARTBEAT_PORT", "5000"))
+    startup_sleep_secs = float(os.getenv("STARTUP_SLEEP_SECS", "20"))
 
     # MultiWorker ports are arbitrary here; all workers share the same port.
     tf_port = int(os.getenv("TF_PORT", "12345"))
 
-    # Announce ourselves to the controller and start periodic heartbeats.
-    host = socket.gethostname()
+    # Use "localhost" when running locally so TF_CONFIG contains a resolvable address.
+    host = os.getenv("WORKER_HOST", "localhost")
     send_join(controller_host, heartbeat_port, worker_id=worker_id, host=host, port=tf_port)
     stop_hb = start_heartbeat_sender(
         controller_host=controller_host,
@@ -53,11 +55,17 @@ def run_worker() -> None:
     )
 
     try:
-        tf_config = _load_tf_config_for_worker(worker_id)
+        if startup_sleep_secs > 0:
+            print(f"[worker {worker_id}] Sleeping {startup_sleep_secs:.0f}s to allow cluster startup...")
+            time.sleep(startup_sleep_secs)
+
+        tf_config, generation = _load_tf_config_for_worker(worker_id)
         if tf_config:
             os.environ["TF_CONFIG"] = tf_config
+            os.environ["TF_GENERATION"] = str(generation)
         else:
             os.environ.pop("TF_CONFIG", None)
+            os.environ.pop("TF_GENERATION", None)
 
         print(f"[worker {worker_id}] Starting training process.")
         training.main()

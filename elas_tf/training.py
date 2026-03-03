@@ -1,11 +1,13 @@
+import json
 import os
 import time
-from typing import Tuple
+from pathlib import Path
+from typing import Optional, Tuple
 
 import numpy as np
 import tensorflow as tf
 
-from .checkpointing import create_checkpoint_objects, ensure_dir, restore_latest_if_available
+from .checkpointing import ensure_dir
 
 
 def _load_mnist() -> Tuple[tf.data.Dataset, tf.data.Dataset, int]:
@@ -38,37 +40,35 @@ def _build_model() -> tf.keras.Model:
     )
 
 
-def _get_strategy() -> tf.distribute.Strategy:
-    # MultiWorkerMirroredStrategy uses TF_CONFIG for cluster coordination.
-    return tf.distribute.MultiWorkerMirroredStrategy()
-
-
 def _is_chief() -> bool:
     """Return True if this process is the chief worker for checkpointing."""
     tf_config = os.getenv("TF_CONFIG")
     if not tf_config:
-        # Single-worker case.
         return True
-
-    # Parse TF_CONFIG directly to determine task index.
-    import json
-
     try:
         cfg = json.loads(tf_config)
         task = cfg.get("task", {})
-        task_type = task.get("type")
-        task_index = int(task.get("index", 0))
-        return task_type == "worker" and task_index == 0
+        return task.get("type") == "worker" and int(task.get("index", 0)) == 0
     except Exception:
-        # If we cannot reliably determine, default to True to avoid skipping checkpoints.
         return True
 
 
+def _write_checkpoint_dir_for_worker(checkpoint_dir: str) -> str:
+    """In MultiWorkerMirroredStrategy, non-chief workers must write to a
+    temporary directory to avoid conflicts. The chief writes to the real dir."""
+    if _is_chief():
+        return checkpoint_dir
+    # Non-chief workers use a temp subdir (TF convention).
+    task_dir = os.path.join(checkpoint_dir, "temp_worker")
+    ensure_dir(task_dir)
+    return task_dir
+
+
 def run_baseline_training(epochs: int = 5) -> None:
-    """Run a baseline MultiWorkerMirroredStrategy training job on MNIST with checkpointing."""
+    """Run a baseline MultiWorkerMirroredStrategy training job on MNIST."""
     tf_config = os.getenv("TF_CONFIG")
     if tf_config:
-        print(f"[training] Using TF_CONFIG environment.")
+        print("[training] Using TF_CONFIG environment.")
     else:
         print("[training] WARNING: TF_CONFIG not set, running as single-worker.")
 
@@ -79,42 +79,47 @@ def run_baseline_training(epochs: int = 5) -> None:
 
     with strategy.scope():
         model = _build_model()
-        optimizer = tf.keras.optimizers.Adam()
-        ckpt, manager, global_step = create_checkpoint_objects(model, optimizer, checkpoint_dir)
-
-        restored = restore_latest_if_available(manager)
-        if restored:
-            print(f"[training] Resumed training at global_step={int(global_step.numpy())}.")
-
-        model.compile(optimizer=optimizer, loss="sparse_categorical_crossentropy", metrics=["accuracy"])
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(),
+            loss="sparse_categorical_crossentropy",
+            metrics=["accuracy"],
+        )
 
     train_ds, test_ds, train_size = _load_mnist()
+
+    # Use the built-in ModelCheckpoint callback which is designed for
+    # MultiWorkerMirroredStrategy. Each worker calls it, but only the
+    # chief actually writes to the real checkpoint_dir.
+    write_dir = _write_checkpoint_dir_for_worker(checkpoint_dir)
+    checkpoint_cb = tf.keras.callbacks.ModelCheckpoint(
+        filepath=os.path.join(write_dir, "ckpt-{epoch:02d}"),
+        save_weights_only=True,
+    )
 
     print("[training] Starting training...")
     start_time = time.time()
 
-    def on_epoch_end(epoch, logs=None):
-        # Only the chief worker writes checkpoints to avoid contention.
-        if _is_chief():
-            global_step.assign_add(1)
-            save_path = manager.save()
-            print(f"[training] Epoch {epoch} complete. Saved checkpoint to {save_path}")
-
-    callbacks = [tf.keras.callbacks.LambdaCallback(on_epoch_end=on_epoch_end)]
-
-    history = model.fit(train_ds, validation_data=test_ds, epochs=epochs, callbacks=callbacks)
+    history = model.fit(
+        train_ds,
+        validation_data=test_ds,
+        epochs=epochs,
+        callbacks=[checkpoint_cb],
+    )
 
     wall_time = time.time() - start_time
     total_samples = train_size * epochs
     throughput = total_samples / wall_time if wall_time > 0 else 0.0
 
-    # Extract final accuracies if present.
     train_acc = history.history.get("accuracy", [None])[-1]
     val_acc = history.history.get("val_accuracy", [None])[-1]
 
     print("[training] Training complete.")
     print(f"[training] Wall time: {wall_time:.2f}s, throughput: {throughput:.1f} samples/sec (approx).")
     print(f"[training] Final train accuracy: {train_acc}, final val accuracy: {val_acc}")
+
+
+def _get_strategy() -> tf.distribute.Strategy:
+    return tf.distribute.MultiWorkerMirroredStrategy()
 
 
 def main() -> None:
@@ -124,4 +129,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

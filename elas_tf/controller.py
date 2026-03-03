@@ -62,6 +62,7 @@ def run_controller() -> None:
 
     generation = 0
     known_workers: Dict[str, Dict] = {}
+    ever_had_workers = False
 
     try:
         while True:
@@ -98,9 +99,12 @@ def run_controller() -> None:
                 print(f"[controller] Membership change detected. Active workers now: {active_ids}")
 
                 if known_workers:
+                    ever_had_workers = True
                     generation += 1
                     _write_tf_config(known_workers, generation)
                     print(f"[controller] Cluster generation updated to {generation}")
+                elif ever_had_workers:
+                    print("[controller] All workers have left. Waiting for new workers...")
 
             time.sleep(1.0)
     except KeyboardInterrupt:

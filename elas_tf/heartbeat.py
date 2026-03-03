@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Tuple
 
 
 DEFAULT_HEARTBEAT_INTERVAL_SECS = 2.0
-DEFAULT_HEARTBEAT_TIMEOUT_SECS = 10.0
+DEFAULT_HEARTBEAT_TIMEOUT_SECS = 15.0
 
 
 @dataclass
