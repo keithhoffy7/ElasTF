@@ -9,7 +9,7 @@
 #   chmod +x launch.sh
 #   ./launch.sh
 
-PROJECT_DIR="/Users/kriteenjain/Downloads/comsci214/ElasTF"
+PROJECT_DIR="/Users/keithhoffmeister/Downloads/ElasTF"
 HEARTBEAT_PORT=6000
 NUM_WORKERS=3
 STARTUP_SLEEP=15
@@ -38,7 +38,7 @@ export CHECKPOINT_DIR=shared/checkpoints
 export HEARTBEAT_PORT=$HEARTBEAT_PORT
 echo "=== CONTROLLER ==="
 echo \$\$ > "$TMPDIR_LAUNCH/controller.pid"
-exec python -m elas_tf.controller
+exec python3 -m elas_tf.controller
 EOF
 chmod +x "$TMPDIR_LAUNCH/controller.sh"
 
@@ -107,7 +107,7 @@ export STARTUP_SLEEP_SECS=$SLEEP_TIME
 export EPOCHS=$EPOCHS
 echo "=== WORKER $i (port $TF_PORT) ==="
 echo \$\$ > "$PIDFILE"
-exec python -m elas_tf.worker
+exec python3 -m elas_tf.worker
 EOF
         chmod +x "$SCRIPT"
 
