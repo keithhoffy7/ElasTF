@@ -38,5 +38,5 @@ for id in "$@"; do
 done
 
 echo ""
-echo "Controller will detect failure via heartbeat timeout (~15s)."
+echo "Controller will detect failure via heartbeat timeout (~8s)."
 echo "Supervisor will restart surviving workers automatically."

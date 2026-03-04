@@ -50,7 +50,7 @@ def run_controller() -> None:
     print("=" * 60)
     print(f"[controller] ElasTF Controller started")
     print(f"[controller] Heartbeat monitor listening on 0.0.0.0:{port}")
-    print(f"[controller] Heartbeat timeout: 15s")
+    print(f"[controller] Heartbeat timeout: 8s")
     print(f"[controller] Waiting for workers to register...")
     print("=" * 60)
     print("")
@@ -61,7 +61,7 @@ def run_controller() -> None:
 
     prev_worker_count = 0
     stabilization_deadline: float = 0.0
-    STABILIZATION_WINDOW = 10.0
+    STABILIZATION_WINDOW = 5.0
 
     try:
         while True:

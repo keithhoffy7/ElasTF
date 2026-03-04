@@ -91,7 +91,7 @@ while true; do
     fi
 
     export TF_PORT=\${TF_PORT:-$NEW_TF_PORT}
-    export STARTUP_SLEEP_SECS=\${STARTUP_SLEEP_SECS:-20}
+    export STARTUP_SLEEP_SECS=\${STARTUP_SLEEP_SECS:-10}
     export EPOCHS=$EPOCHS
 
     echo ""
@@ -127,7 +127,7 @@ while true; do
     echo "[worker $NEW_ID] Waiting for restart signal from supervisor..."
 
     WAITED=0
-    while [ ! -f "\$SIGNAL_FILE" ] && [ \$WAITED -lt 90 ]; do
+    while [ ! -f "\$SIGNAL_FILE" ] && [ \$WAITED -lt 45 ]; do
         sleep 2
         WAITED=\$((WAITED + 2))
     done
@@ -198,7 +198,7 @@ done
 # freed when the python process dies, so no need for new ones).
 for id in $CURRENT_IDS; do
     cat > "$SIGNAL_DIR/restart_${id}" <<SIGEOF
-export STARTUP_SLEEP_SECS=20
+export STARTUP_SLEEP_SECS=10
 SIGEOF
     echo "[add_worker]   Restart signal for worker $id"
 done

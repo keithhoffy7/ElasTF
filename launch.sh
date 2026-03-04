@@ -13,7 +13,7 @@
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HEARTBEAT_PORT=6000
 NUM_WORKERS=3
-STARTUP_SLEEP=15
+STARTUP_SLEEP=10
 EPOCHS=5
 TMPDIR_LAUNCH="/tmp/elastf_launch"
 REMAINING_FILE="$PROJECT_DIR/shared/config/remaining_workers"
@@ -164,7 +164,7 @@ while true; do
     echo "[worker $i] Waiting for restart signal from supervisor..."
 
     WAITED=0
-    while [ ! -f "\$SIGNAL_FILE" ] && [ \$WAITED -lt 90 ]; do
+    while [ ! -f "\$SIGNAL_FILE" ] && [ \$WAITED -lt 45 ]; do
         sleep 2
         WAITED=\$((WAITED + 2))
     done
@@ -197,7 +197,7 @@ while true; do
 
     # Wait for PID files — use ALIVE_IDS (not 0..N-1) to read correct PID files.
     echo "[supervisor] Waiting for worker PIDs..."
-    sleep 8
+    sleep 4
 
     WORKER_PIDS=()
     WORKER_PID_IDS=()
@@ -230,7 +230,7 @@ while true; do
     fi
     echo ""
     echo "[supervisor] (Current PIDs: ${WORKER_PIDS[*]})"
-    echo "[supervisor] Heartbeat timeout is 15s — controller will detect failures after that."
+    echo "[supervisor] Heartbeat timeout is 8s — controller will detect failures after that."
     echo ""
 
     # Wait for a worker PID to exit OR a scale-up signal.
@@ -269,11 +269,11 @@ while true; do
 
     # Check if training completed (workers write this marker on exit code 0).
     TRAINING_DONE_FILE="$PROJECT_DIR/shared/config/training_done"
-    sleep 5
+    sleep 2
     if [ -f "$TRAINING_DONE_FILE" ]; then
         # Wait for ALL workers to finish before declaring done.
         echo "[supervisor] Training done marker found. Waiting for all workers to finish..."
-        sleep 10
+        sleep 5
         echo ""
         echo "============================================================"
         echo "[supervisor] Training completed successfully!"
@@ -284,7 +284,7 @@ while true; do
     echo "[supervisor] Waiting for controller to detect failure via heartbeat timeout..."
 
     # Poll for the controller's remaining_workers file.
-    WAIT_LIMIT=45
+    WAIT_LIMIT=25
     WAITED=0
     while [ ! -f "$REMAINING_FILE" ] && [ $WAITED -lt $WAIT_LIMIT ]; do
         sleep 2
@@ -318,7 +318,7 @@ while true; do
     ALIVE_IDS=()
     for i in "${SURVIVOR_IDS[@]}"; do
         cat > "$SIGNAL_DIR/restart_${i}" <<SIGEOF
-export STARTUP_SLEEP_SECS=20
+export STARTUP_SLEEP_SECS=10
 SIGEOF
         echo "[supervisor] Restart signal for worker $i"
         ALIVE_IDS+=("$i")
