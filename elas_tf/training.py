@@ -1,8 +1,10 @@
+import csv
 import glob
 import json
 import os
 import re
 import time
+from pathlib import Path
 from typing import Optional, Tuple
 
 import numpy as np
@@ -11,6 +13,25 @@ import tensorflow as tf
 from .checkpointing import ensure_dir
 
 TOTAL_TRAIN_SAMPLES = 60000
+
+# CSV header written once per run (chief worker only).
+_METRICS_HEADER = [
+    "global_step",
+    "epoch",
+    "elapsed_time_s",
+    "train_loss",
+    "train_accuracy",
+    "val_loss",
+    "val_accuracy",
+    "num_workers",
+    "worker_index",
+    "samples_per_worker",
+]
+
+
+def _metrics_csv_path(checkpoint_dir: str) -> str:
+    """Shared CSV file written by the chief worker for live plotting."""
+    return os.path.join(checkpoint_dir, "training_metrics.csv")
 
 
 def _load_mnist() -> Tuple[tf.data.Dataset, tf.data.Dataset, int]:
@@ -90,6 +111,11 @@ def _find_latest_checkpoint(checkpoint_dir: str) -> Tuple[Optional[str], int]:
     return best_path, best_epoch
 
 
+def _count_batches_per_epoch(train_size: int, batch_size: int = 64) -> int:
+    """Number of gradient steps (batches) per epoch."""
+    return (train_size + batch_size - 1) // batch_size
+
+
 def run_baseline_training(epochs: int = 5) -> None:
     worker_index, num_workers = _get_worker_info()
 
@@ -142,6 +168,8 @@ def run_baseline_training(epochs: int = 5) -> None:
 
     # Data sharding info.
     samples_per_worker = train_size // num_workers
+    steps_per_epoch = _count_batches_per_epoch(train_size)
+
     print("")
     print("-" * 60)
     print(f"[training] DATA SHARDING:")
@@ -149,6 +177,7 @@ def run_baseline_training(epochs: int = 5) -> None:
     print(f"[training]   Number of workers:      {num_workers}")
     print(f"[training]   Samples per worker:     ~{samples_per_worker}")
     print(f"[training]   This worker (index {worker_index}) processes ~{samples_per_worker} samples/epoch")
+    print(f"[training]   Steps per epoch:        {steps_per_epoch}")
     print("-" * 60)
     print("")
 
@@ -159,7 +188,38 @@ def run_baseline_training(epochs: int = 5) -> None:
         save_weights_only=True,
     )
 
+    # ------------------------------------------------------------------
+    # Metrics CSV setup (chief only — avoids races in multi-worker runs).
+    # global_step counts optimizer steps across the entire training run,
+    # including steps from previous generations (after elastic recovery).
+    # ------------------------------------------------------------------
+    csv_path = _metrics_csv_path(checkpoint_dir)
+    is_chief = _is_chief()
+
+    # Load the last recorded global_step from a prior generation so steps
+    # accumulate monotonically across elastic restarts.
+    global_step_offset = 0
+    if is_chief and os.path.exists(csv_path):
+        try:
+            with open(csv_path, "r", newline="") as f:
+                rows = list(csv.DictReader(f))
+            if rows:
+                global_step_offset = int(rows[-1]["global_step"])
+        except Exception:
+            pass
+
+    if is_chief and not os.path.exists(csv_path):
+        with open(csv_path, "w", newline="") as f:
+            csv.writer(f).writerow(_METRICS_HEADER)
+
+    # Wall-clock reference for this generation (seconds since training start).
+    run_start_time = time.time()
+
+    # Epoch-level start time for per-epoch elapsed tracking.
+    epoch_start_times: dict = {}
+
     def on_epoch_begin(epoch, logs=None):
+        epoch_start_times[epoch] = time.time()
         print("")
         print(f"[checkpoint] --- Epoch {epoch + 1}/{epochs} starting ---")
         print(f"[checkpoint]   Workers in cluster: {num_workers}")
@@ -172,19 +232,47 @@ def run_baseline_training(epochs: int = 5) -> None:
         val_acc = logs.get("val_accuracy", "?")
         ckpt_file = ckpt_path_template.format(epoch=epoch + 1)
 
+        # global_step = steps already done before this run
+        #             + steps completed in this run up to and including this epoch.
+        # "epoch" here is 0-indexed (Keras convention), but completed_epochs
+        # is the number of epochs already done when this generation started.
+        epochs_done_this_run = (epoch + 1) - completed_epochs
+        current_global_step = global_step_offset + epochs_done_this_run * steps_per_epoch
+        elapsed = time.time() - run_start_time
+
         print("")
         print("+" * 60)
         print(f"[checkpoint] EPOCH {epoch + 1}/{epochs} COMPLETE")
+        print(f"[checkpoint]   Global step:    {current_global_step}")
+        print(f"[checkpoint]   Elapsed time:   {elapsed:.1f}s")
         print(f"[checkpoint]   Train loss:     {loss}")
         print(f"[checkpoint]   Train accuracy: {acc}")
         print(f"[checkpoint]   Val loss:       {val_loss}")
         print(f"[checkpoint]   Val accuracy:   {val_acc}")
-        if _is_chief():
+        if is_chief:
             print(f"[checkpoint]   Checkpoint saved to: {ckpt_file}")
         else:
             print(f"[checkpoint]   (Non-chief worker, checkpoint written by chief)")
         print("+" * 60)
         print("")
+
+        # Write a row to the shared CSV (chief only).
+        if is_chief:
+            row = [
+                current_global_step,
+                epoch + 1,
+                round(elapsed, 3),
+                loss if isinstance(loss, float) else "",
+                acc if isinstance(acc, float) else "",
+                val_loss if isinstance(val_loss, float) else "",
+                val_acc if isinstance(val_acc, float) else "",
+                num_workers,
+                worker_index,
+                samples_per_worker,
+            ]
+            with open(csv_path, "a", newline="") as f:
+                csv.writer(f).writerow(row)
+            print(f"[metrics]  Row appended → {csv_path}")
 
     epoch_log_cb = tf.keras.callbacks.LambdaCallback(
         on_epoch_begin=on_epoch_begin,
