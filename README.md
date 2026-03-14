@@ -17,8 +17,7 @@ ElasTF/
 │   ├── worker.py
 │   ├── training.py
 │   ├── heartbeat.py
-│   ├── heartbeat_sender.py
-│   └── checkpointing.py
+│   └── heartbeat_sender.py
 └── shared/            # checkpoints + config (created at runtime)
 ```
 
