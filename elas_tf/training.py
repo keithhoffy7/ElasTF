@@ -9,7 +9,8 @@ from typing import Optional, Tuple
 import numpy as np
 import tensorflow as tf
 
-from .checkpointing import ensure_dir
+def ensure_dir(path: str) -> None:
+    os.makedirs(path, exist_ok=True)
 
 TOTAL_TRAIN_SAMPLES = 60000
 WALL_TIME_FILE = "cumulative_wall_time"
