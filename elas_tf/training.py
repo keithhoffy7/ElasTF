@@ -4,7 +4,6 @@ import json
 import os
 import re
 import time
-from pathlib import Path
 from typing import Optional, Tuple
 
 import numpy as np
@@ -65,7 +64,6 @@ def _build_model() -> tf.keras.Model:
 
 
 def _get_worker_info() -> Tuple[int, int]:
-    """Return (worker_index, num_workers) from TF_CONFIG."""
     tf_config = os.getenv("TF_CONFIG")
     if not tf_config:
         return 0, 1

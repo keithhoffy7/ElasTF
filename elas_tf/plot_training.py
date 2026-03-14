@@ -1,16 +1,3 @@
-#!/usr/bin/env python3
-"""plot_training.py — Live plot of Global Training Steps vs Epochs and Wall Time.
-
-Usage (from the ElasTF project root):
-    python3 plot_training.py                         # auto-finds CSV in shared/checkpoints
-    python3 plot_training.py shared/checkpoints      # explicit checkpoint dir
-    python3 plot_training.py --once                  # plot once and exit (no live update)
-
-The script reads `training_metrics.csv` written by the chief worker inside the
-checkpoint directory. It refreshes every 5 seconds while training is running.
-
-Requires: matplotlib (pip install matplotlib)
-"""
 import argparse
 import csv
 import os
@@ -19,10 +6,6 @@ import time
 from pathlib import Path
 from typing import List, Dict
 
-
-                                                                             
-              
-                                                                             
 
 CSV_FILENAME = "training_metrics.csv"
 

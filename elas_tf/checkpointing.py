@@ -9,7 +9,6 @@ def create_checkpoint_objects(
     optimizer: tf.keras.optimizers.Optimizer,
     checkpoint_dir: str,
 ) -> Tuple[tf.train.Checkpoint, tf.train.CheckpointManager, tf.Variable]:
-    """Create checkpoint, checkpoint manager, and global step for training."""
     global_step = tf.Variable(0, dtype=tf.int64, name="global_step")
     ckpt = tf.train.Checkpoint(step=global_step, optimizer=optimizer, net=model)
     manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=3)
@@ -17,7 +16,6 @@ def create_checkpoint_objects(
 
 
 def restore_latest_if_available(manager: tf.train.CheckpointManager) -> bool:
-    """Restore from the latest checkpoint if one exists. Returns True if restored."""
     latest_path = manager.latest_checkpoint
     if latest_path:
         manager.checkpoint.restore(latest_path).expect_partial()
